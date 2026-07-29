@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parseIbkrStatement } from "../src/domain/analytics.js";
+import {
+  countOptionLifecycleTrades,
+  optionLifecycleCodes,
+  summarizeOptionLifecycleCodes,
+} from "../src/domain/optionLifecycle.js";
 import { buildAdviceSignals } from "../src/ui/advice.js";
 
 const xml = await readFile(
@@ -168,7 +173,7 @@ const xmlWithExercisedCashSettlementTrade = `
 <FlexStatement accountId="DEMO-EXERCISE" fromDate="20260102" toDate="20260116">
   <Trades>
     <Trade assetCategory="OPT" currency="USD" symbol="SPXW  260116C06000000" description="SPXW 16JAN26 6000 C" underlyingSymbol="SPX" dateTime="20260102;100000" tradeDate="20260102" quantity="1" tradePrice="1" proceeds="-100" ibCommission="0" netCash="-100" cost="100" fifoPnlRealized="0" mtmPnl="0" openCloseIndicator="O" transactionType="Buy" expiry="20260116" putCall="C" strike="6000" multiplier="100" />
-    <Trade assetCategory="OPT" currency="USD" symbol="SPXW  260116C06000000" description="SPXW 16JAN26 6000 C" underlyingSymbol="SPX" dateTime="20260116" tradeDate="20260116" quantity="-1" tradePrice="0" proceeds="0" ibCommission="0" netCash="0" cost="100" fifoPnlRealized="2400" mtmPnl="2500" notes="Ex" transactionType="Exercise" expiry="20260116" putCall="C" strike="6000" multiplier="100" />
+    <Trade assetCategory="OPT" currency="USD" symbol="SPXW  260116C06000000" description="SPXW 16JAN26 6000 C" underlyingSymbol="SPX" dateTime="20260116" tradeDate="20260116" quantity="-1" tradePrice="0" proceeds="0" ibCommission="0" netCash="0" cost="100" fifoPnlRealized="2400" mtmPnl="2500" transactionType="Exercise" expiry="20260116" putCall="C" strike="6000" multiplier="100" />
   </Trades>
 </FlexStatement>
 `;
@@ -291,6 +296,27 @@ assert.deepEqual(
 );
 assert.equal(officialOptionLifecycleCodesReport.metrics.autoExpiryCount, 1);
 assert.equal(officialOptionLifecycleCodesReport.metrics.net, 260);
+assert.deepEqual(
+  summarizeOptionLifecycleCodes(officialOptionLifecycleCodesReport.closedTrades),
+  [
+    { code: "Ep", count: 1 },
+    { code: "Ex", count: 1 },
+    { code: "A", count: 1 },
+    { code: "CD", count: 1 },
+    { code: "AEx", count: 1 },
+    { code: "MEx", count: 1 },
+    { code: "GEA", count: 1 },
+  ],
+);
+assert.equal(
+  countOptionLifecycleTrades(officialOptionLifecycleCodesReport.closedTrades),
+  7,
+);
+assert.deepEqual(
+  optionLifecycleCodes({ actionCodes: ["C", "Ex", "CD"] }),
+  ["Ex", "CD"],
+);
+assert.deepEqual(optionLifecycleCodes({ actionCodes: ["C"] }), []);
 
 // Metrics should be internally valid
 assert.ok(Number.isFinite(report.metrics.net));

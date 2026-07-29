@@ -1,4 +1,11 @@
 import { escapeHtml, money, percent, ratio } from "../domain/format.js";
+import {
+  countOptionLifecycleTrades,
+  optionLifecycleCodes,
+  summarizeOptionLifecycleCodes,
+  type OptionLifecycleCode,
+  type OptionLifecycleCount,
+} from "../domain/optionLifecycle.js";
 import type {
   AssetGroup,
   AssetGroupSummary,
@@ -698,7 +705,8 @@ interface OptionUnderlyingSummary {
   profitFactor: number;
   winRate: number;
   count: number;
-  autoExpiryCount: number;
+  lifecycleCount: number;
+  lifecycleCounts: OptionLifecycleCount[];
   details: ClosedTrade[];
 }
 
@@ -717,7 +725,9 @@ function renderOptionRows(
       const groupKey = `option-${index}`;
       return [
         renderOptionSummaryRow(row, groupKey, locale),
-        ...row.details.map((trade) => renderOptionDetailRow(trade, groupKey)),
+        ...row.details.map((trade) =>
+          renderOptionDetailRow(trade, groupKey, locale)
+        ),
       ].join("");
     })
     .join("");
@@ -744,13 +754,17 @@ function renderOptionSummaryRow(
       <td class="num ${tone}">${money(row.pnl)}</td>
       <td class="num">${ratio(row.profitFactor)}</td>
       <td class="num">${percent(row.winRate)}</td>
-      <td class="num">${row.autoExpiryCount}</td>
+      <td class="num">${renderOptionLifecycleSummary(row.lifecycleCounts, locale)}</td>
       <td class="num">${row.count}</td>
     </tr>
   `;
 }
 
-function renderOptionDetailRow(trade: ClosedTrade, groupKey: string): string {
+function renderOptionDetailRow(
+  trade: ClosedTrade,
+  groupKey: string,
+  locale: Locale,
+): string {
   const tone = trade.realizedPnl >= 0 ? "win" : "loss";
   return `
     <tr class="detail-row" data-option-group="${escapeHtml(groupKey)}" hidden>
@@ -759,7 +773,7 @@ function renderOptionDetailRow(trade: ClosedTrade, groupKey: string): string {
       <td class="num ${tone}">${money(trade.realizedPnl)}</td>
       <td class="num neutral">--</td>
       <td class="num neutral">--</td>
-      <td class="num">${trade.autoExpiry ? 1 : 0}</td>
+      <td class="num">${renderOptionLifecycleDetail(trade, locale)}</td>
       <td class="num">1</td>
     </tr>
   `;
@@ -808,10 +822,53 @@ function buildOptionUnderlyingSummaries(
           : 0,
       winRate: pnls.length ? wins.length / pnls.length : 0,
       count: sortedDetails.length,
-      autoExpiryCount: sortedDetails.filter((row) => row.autoExpiry).length,
+      lifecycleCount: countOptionLifecycleTrades(sortedDetails),
+      lifecycleCounts: summarizeOptionLifecycleCodes(sortedDetails),
       details: sortedDetails,
     };
   });
+}
+
+function renderOptionLifecycleSummary(
+  counts: OptionLifecycleCount[],
+  locale: Locale,
+): string {
+  if (!counts.length) return '<span class="option-lifecycle-none">—</span>';
+  return `<span class="option-lifecycle-summary">${counts
+    .map(({ code, count }) =>
+      `<span class="option-lifecycle-summary-item" title="${escapeHtml(t(locale, optionLifecycleTranslationKey(code)))}"><span class="option-lifecycle-code">${code}</span><span class="option-lifecycle-count">×${count}</span></span>`
+    )
+    .join("")}</span>`;
+}
+
+function renderOptionLifecycleDetail(
+  trade: ClosedTrade,
+  locale: Locale,
+): string {
+  const codes = optionLifecycleCodes(trade);
+  if (!codes.length) {
+    return `<span class="option-lifecycle-none" title="${escapeHtml(t(locale, "optionLifecycleRegularClose"))}">—</span>`;
+  }
+  return `<span class="option-lifecycle-list">${codes
+    .map((code) =>
+      `<span class="option-lifecycle-item" title="IBKR ${code}"><span class="option-lifecycle-code">${code}</span><span class="option-lifecycle-label">${escapeHtml(t(locale, optionLifecycleTranslationKey(code)))}</span></span>`
+    )
+    .join("")}</span>`;
+}
+
+function optionLifecycleTranslationKey(
+  code: OptionLifecycleCode,
+): TranslationKey {
+  const keys: Record<OptionLifecycleCode, TranslationKey> = {
+    Ep: "optionLifecycleEp",
+    Ex: "optionLifecycleEx",
+    A: "optionLifecycleA",
+    CD: "optionLifecycleCD",
+    AEx: "optionLifecycleAEx",
+    MEx: "optionLifecycleMEx",
+    GEA: "optionLifecycleGEA",
+  };
+  return keys[code];
 }
 
 function extractUnderlying(symbol: string): string {

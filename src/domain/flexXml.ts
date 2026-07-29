@@ -1,3 +1,4 @@
+import { isOptionLifecycleCode } from "./optionLifecycle.js";
 import type { DomainErrorCode, FlexOrder, FlexTrade, StatementAccountSummary, StatementProfile } from "./types.js";
 
 export class DomainError extends Error {
@@ -126,13 +127,18 @@ function normalizeFlexTrade(row: Record<string, string>): FlexTrade {
     ...splitCodes(row.code),
   ]);
   const transactionType = row.transactionType || "";
-  const lifecycle = optionLifecycleFlags(notes, transactionType);
+  const eventCode = optionEventCode(transactionType, notes);
   const openCloseIndicator = row.openCloseIndicator
     || (notes.includes("C") ? "C" : notes.includes("O") ? "O" : "");
+  const lifecycle = optionLifecycleFlags(
+    uniqueCodes([...notes, eventCode]),
+    transactionType,
+  );
   const close = openCloseIndicator === "C" || lifecycle.isLifecycle;
   const actionCodes = uniqueCodes([
     close ? "C" : openCloseIndicator,
     ...notes,
+    eventCode,
   ]);
   const displaySymbol = row.description || row.symbol || "";
   const reportedRealizedPnl = hasNumericValue(row.fifoPnlRealized)
@@ -461,10 +467,6 @@ function optionLifecycleFlags(
     isExerciseOrAssignment,
     isCashDelivery,
   };
-}
-
-function isOptionLifecycleCode(code: string): boolean {
-  return ["A", "AEx", "CD", "Ep", "Ex", "GEA", "MEx"].includes(code);
 }
 
 function strategyGroupId(row: Record<string, string>): string {
