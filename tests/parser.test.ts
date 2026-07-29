@@ -130,6 +130,40 @@ const xmlWithWeekendAndPremarketCloses = `
 </FlexStatement>
 `;
 
+const xmlWithCashSettledOption = `
+<FlexStatement accountId="DEMO-CASH-SETTLED" fromDate="2026-01-02" toDate="2026-01-16">
+  <Trades>
+    <Trade assetCategory="OPT" currency="USD" symbol="SPXW  260116C06000000" description="SPXW 16JAN26 6000 C" underlyingSymbol="SPX" dateTime="20260102;10:00:00" tradeDate="20260102" quantity="1" tradePrice="1" proceeds="-100" ibCommission="0" netCash="-100" cost="100" fifoPnlRealized="0" mtmPnl="0" openCloseIndicator="O" transactionType="Buy" expiry="20260116" putCall="C" strike="6000" multiplier="100" />
+  </Trades>
+  <OptionEAE>
+    <OptionEAE assetCategory="OPT" currency="USD" symbol="SPXW  260116C06000000" description="SPXW 16JAN26 6000 C" underlyingSymbol="SPX" date="2026-01-16" transactionType="Expiration" quantity="-1" tradePrice="25" proceeds="2500" realizedPnl="2400" mtmPnl="2500" code="CD;Ep" expiry="2026-01-16" putCall="C" strike="6000.0000" multiplier="100" />
+  </OptionEAE>
+</FlexStatement>
+`;
+
+const xmlWithWorthlessOptionExpiration = `
+<FlexStatement accountId="DEMO-WORTHLESS" fromDate="20260102" toDate="20260116">
+  <Trades>
+    <Trade assetCategory="OPT" currency="USD" symbol="SPXW  260116P05000000" description="SPXW 16JAN26 5000 P" underlyingSymbol="SPX" dateTime="20260102;100000" tradeDate="20260102" quantity="1" tradePrice="1.75" proceeds="-175" ibCommission="0" netCash="-175" cost="175" fifoPnlRealized="0" mtmPnl="0" openCloseIndicator="O" transactionType="Buy" expiry="20260116" putCall="P" strike="5000" multiplier="100" />
+  </Trades>
+  <OptionEAE>
+    <OptionEAE assetCategory="OPT" currency="USD" symbol="SPXW  260116P05000000" description="SPXW 16JAN26 5000 P" underlyingSymbol="SPX" date="20260116" transactionType="Expiration" quantity="-1" tradePrice="0" proceeds="0" mtmPnl="-175" code="Ep" expiry="20260116" putCall="P" strike="5000" multiplier="100" />
+  </OptionEAE>
+</FlexStatement>
+`;
+
+const xmlWithDuplicateCashSettlementLifecycle = `
+<FlexStatement accountId="DEMO-CASH-DEDUPE" fromDate="20260102" toDate="20260116">
+  <Trades>
+    <Trade assetCategory="OPT" currency="USD" symbol="SPXW  260116C06000000" description="SPXW 16JAN26 6000 C" underlyingSymbol="SPX" dateTime="20260102;100000" tradeDate="20260102" quantity="1" tradePrice="1" proceeds="-100" ibCommission="0" netCash="-100" cost="100" fifoPnlRealized="0" mtmPnl="0" openCloseIndicator="O" transactionType="Buy" expiry="20260116" putCall="C" strike="6000" multiplier="100" />
+    <Trade assetCategory="OPT" currency="USD" symbol="SPXW  260116C06000000" description="SPXW 16JAN26 6000 C" underlyingSymbol="SPX" dateTime="20260116" tradeDate="20260116" quantity="-1" tradePrice="0" proceeds="0" ibCommission="0" netCash="0" cost="100" fifoPnlRealized="-100" mtmPnl="-100" openCloseIndicator="C" notes="Ep" transactionType="Expire" expiry="20260116" putCall="C" strike="6000" multiplier="100" />
+  </Trades>
+  <OptionEAE>
+    <OptionEAE assetCategory="OPT" currency="USD" symbol="SPXW  260116C06000000" description="SPXW 16JAN26 6000 C" underlyingSymbol="SPX" date="20260116" transactionType="Expiration" quantity="-1" tradePrice="25" proceeds="2500" realizedPnl="2400" mtmPnl="2500" code="CD;Ep" expiry="20260116" putCall="C" strike="6000" multiplier="100" />
+  </OptionEAE>
+</FlexStatement>
+`;
+
 const report = parseIbkrStatement(xml);
 const multiAccountReport = parseIbkrStatement(multiAccountXml);
 const secondAccountReport = parseIbkrStatement(multiAccountXml, 1);
@@ -142,6 +176,9 @@ const bullPutSpreadReport = parseIbkrStatement(xmlWithBullPutSpread);
 const ironCondorReport = parseIbkrStatement(xmlWithIronCondor);
 const independentSameDayOptionsReport = parseIbkrStatement(xmlWithIndependentSameDayOptions);
 const weekendAndPremarketClosesReport = parseIbkrStatement(xmlWithWeekendAndPremarketCloses);
+const cashSettledOptionReport = parseIbkrStatement(xmlWithCashSettledOption);
+const worthlessOptionExpirationReport = parseIbkrStatement(xmlWithWorthlessOptionExpiration);
+const duplicateCashSettlementReport = parseIbkrStatement(xmlWithDuplicateCashSettlementLifecycle);
 
 // Basic parsing
 assert.ok(report.profile.maskedAccountId.includes("*"));
@@ -184,6 +221,30 @@ assert.equal(ironCondorReport.closedPositionSlices[0]?.direction, "neutral");
 assert.deepEqual(ironCondorReport.directionSummaries.map((row) => row.direction), ["neutral"]);
 assert.equal(independentSameDayOptionsReport.closedPositionSlices.length, 2);
 assert.deepEqual(independentSameDayOptionsReport.directionSummaries.map((row) => row.direction), ["long", "short"]);
+
+// OptionEAE lifecycle events should include cash settlement without inflating executions.
+assert.equal(cashSettledOptionReport.profile.period, "2026-01-02 - 2026-01-16");
+assert.equal(cashSettledOptionReport.metrics.executionCount, 1);
+assert.equal(cashSettledOptionReport.trades.length, 2);
+assert.equal(cashSettledOptionReport.closedTrades.length, 1);
+assert.equal(cashSettledOptionReport.metrics.net, 2400);
+assert.equal(cashSettledOptionReport.metrics.autoExpiryCount, 1);
+assert.equal(cashSettledOptionReport.closedTrades[0]?.netCash, 2500);
+assert.equal(cashSettledOptionReport.closedTrades[0]?.code.includes("CD"), true);
+assert.equal(cashSettledOptionReport.closedPositionSlices[0]?.pnl, 2400);
+
+// A worthless OptionEAE expiration should still realize the opening premium loss.
+assert.equal(worthlessOptionExpirationReport.metrics.executionCount, 1);
+assert.equal(worthlessOptionExpirationReport.closedTrades.length, 1);
+assert.equal(worthlessOptionExpirationReport.metrics.net, -175);
+assert.equal(worthlessOptionExpirationReport.metrics.autoExpiryCount, 1);
+
+// Prefer the authoritative OptionEAE cash settlement when Trades repeats the lifecycle close.
+assert.equal(duplicateCashSettlementReport.metrics.executionCount, 2);
+assert.equal(duplicateCashSettlementReport.trades.length, 2);
+assert.equal(duplicateCashSettlementReport.closedTrades.length, 1);
+assert.equal(duplicateCashSettlementReport.metrics.net, 2400);
+assert.equal(duplicateCashSettlementReport.metrics.autoExpiryCount, 1);
 
 // Metrics should be internally valid
 assert.ok(Number.isFinite(report.metrics.net));

@@ -28,6 +28,7 @@ export function parseIbkrStatement(text: string, selectedAccountIndex = 0): Pars
   const positionAnalytics = buildPositionAnalytics(flex.trades);
   const metrics = buildMetrics({
     trades: flex.trades,
+    executionCount: flex.executionCount,
     closedTrades,
     canceledOrders,
     closedPositionSlices: positionAnalytics.closedPositionSlices,
@@ -73,11 +74,13 @@ function isCanceledOrder(row: FlexOrder): boolean {
 
 function buildMetrics({
   trades,
+  executionCount,
   closedTrades,
   canceledOrders,
   closedPositionSlices,
 }: {
   trades: FlexTrade[];
+  executionCount: number;
   closedTrades: ClosedTrade[];
   canceledOrders: FlexOrder[];
   closedPositionSlices: ClosedPositionSlice[];
@@ -102,8 +105,8 @@ function buildMetrics({
     realizedTotal: net,
     grossProfit,
     grossLoss,
-    tradeCount: trades.length,
-    executionCount: trades.length,
+    tradeCount: executionCount,
+    executionCount,
     closedCount: pnls.length,
     canceledOrderCount: canceledOrders.length,
     winCount: wins.length,
@@ -205,12 +208,18 @@ function buildPositionAnalytics(trades: FlexTrade[]): PositionAnalytics {
 
 function positionKey(trade: FlexTrade): string {
   return [
-    trade.currency,
-    trade.rawSymbol || trade.displaySymbol,
-    trade.expiry,
-    trade.putCall,
-    trade.strike,
+    trade.currency.toUpperCase(),
+    (trade.rawSymbol || trade.displaySymbol).trim().replace(/\s+/g, " ").toUpperCase(),
+    trade.expiry.replace(/-/g, ""),
+    trade.putCall.toUpperCase(),
+    canonicalNumber(trade.strike),
   ].join("|");
+}
+
+function canonicalNumber(value: string): string {
+  if (!value.trim()) return "";
+  const parsed = Number(value.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? String(parsed) : value.trim();
 }
 
 function tradeTime(trade: FlexTrade): number {

@@ -28,9 +28,10 @@ Recommended Flex Query sections:
 
 - Account Information
 - Trades
+- Option Exercises, Assignments & Expirations
 - Orders / Order History, if you want canceled order analysis
 
-The current analyzer uses `<Trade>` records as execution records. Realized P/L is calculated by matching closing executions against the most recent open executions for the same symbol, using execution cash flow when available. `<Lot>` records are ignored for P/L analytics because they can duplicate or break down the same closed activity already represented by trades. If your Flex XML contains `<Order>` records, canceled orders are counted separately.
+The current analyzer uses `<Trade>` records as execution records and `<OptionEAE>` records for exercises, assignments, expirations, and cash settlement. Realized P/L is calculated by matching closing executions against the most recent open executions for the same symbol, using execution cash flow when available. Reported `<OptionEAE>` realized P/L takes precedence for lifecycle events because it includes cash-settled index option proceeds. `<Lot>` records are ignored for P/L analytics because they can duplicate or break down the same closed activity already represented by trades. If your Flex XML contains `<Order>` records, canceled orders are counted separately.
 
 ## Privacy
 
@@ -65,8 +66,9 @@ In IBKR Client Portal:
 3. Create or edit an Activity Flex Query.
 4. Choose XML output.
 5. Include Trades.
-6. Add Orders / Order History if you need canceled order analysis.
-7. Run the query and download the XML file.
+6. Include Option Exercises, Assignments & Expirations with proceeds, realized P/L, and contract fields.
+7. Add Orders / Order History if you need canceled order analysis.
+8. Run the query and download the XML file.
 
 ## Local Development
 
