@@ -31,7 +31,7 @@ Recommended Flex Query sections:
 - Option Exercises, Assignments & Expirations
 - Orders / Order History, if you want canceled order analysis
 
-The current analyzer uses `<Trade>` records as execution records and `<OptionEAE>` records for exercises, assignments, expirations, and cash settlement. Realized P/L is calculated by matching closing executions against the most recent open executions for the same symbol, using execution cash flow when available. Reported `<OptionEAE>` realized P/L takes precedence for lifecycle events because it includes cash-settled index option proceeds. `<Lot>` records are ignored for P/L analytics because they can duplicate or break down the same closed activity already represented by trades. If your Flex XML contains `<Order>` records, canceled orders are counted separately.
+The current analyzer uses `<Trade>` records as execution records and `<OptionEAE>` records for exercises, assignments, expirations, and cash settlement. Realized P/L is calculated by matching closing executions against the most recent open executions for the same symbol, using execution cash flow when available. IBKR-reported realized P/L takes precedence for option lifecycle records, including `Ep` (expired position), `Ex` (exercise), `A` (assignment), `CD` (cash delivery), `AEx`, `MEx`, and `GEA`, so cash-settled proceeds are not replaced by a zero-cash expiry calculation. `<Lot>` records are ignored for P/L analytics because they can duplicate or break down the same closed activity already represented by trades. If your Flex XML contains `<Order>` records, canceled orders are counted separately.
 
 ## Privacy
 

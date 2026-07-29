@@ -25,9 +25,26 @@ export function parseFlexXml(text: string, selectedAccountIndex = 0): FlexXmlPar
   const optionEventRows = extractTagAttrs(selected.content, "OptionEAE")
     .filter(isOptionLifecycleRow);
   const orders = extractTagAttrs(selected.content, "Order") as FlexOrder[];
+  const normalizedTradeRows = tradeRows.map((row) => {
+    const trade = normalizeFlexTrade(row);
+    return {
+      trade,
+      hasReportedRealizedPnl: hasNumericValue(row.fifoPnlRealized)
+        || hasNumericValue(row.realizedPnl),
+    };
+  });
+  // Lifecycle cash can be reported outside Trade.netCash, so IBKR's realized
+  // P/L must survive the execution-matching pass for these records.
+  const reportedLifecycleTrades = new Set(
+    normalizedTradeRows
+      .filter(({ trade, hasReportedRealizedPnl }) =>
+        hasReportedRealizedPnl && isLifecycleEvent(trade))
+      .map(({ trade }) => trade),
+  );
   const reconciledTrades = reconcileOptionEvents(
-    tradeRows.map(normalizeFlexTrade),
+    normalizedTradeRows.map(({ trade }) => trade),
     optionEventRows.map(normalizeOptionEvent),
+    reportedLifecycleTrades,
   );
   const trades = applyMatchedRealizedPnl(
     reconciledTrades.trades,
@@ -108,9 +125,19 @@ function normalizeFlexTrade(row: Record<string, string>): FlexTrade {
     ...splitCodes(row.notes),
     ...splitCodes(row.code),
   ]);
-  const openCloseIndicator = row.openCloseIndicator || "";
-  const actionCodes = [openCloseIndicator, ...notes].filter(Boolean);
+  const transactionType = row.transactionType || "";
+  const lifecycle = optionLifecycleFlags(notes, transactionType);
+  const openCloseIndicator = row.openCloseIndicator
+    || (notes.includes("C") ? "C" : notes.includes("O") ? "O" : "");
+  const close = openCloseIndicator === "C" || lifecycle.isLifecycle;
+  const actionCodes = uniqueCodes([
+    close ? "C" : openCloseIndicator,
+    ...notes,
+  ]);
   const displaySymbol = row.description || row.symbol || "";
+  const reportedRealizedPnl = hasNumericValue(row.fifoPnlRealized)
+    ? num(row.fifoPnlRealized)
+    : num(row.realizedPnl);
 
   return {
     assetClass: flexAssetClass(row.assetCategory),
@@ -128,16 +155,20 @@ function normalizeFlexTrade(row: Record<string, string>): FlexTrade {
     commission: num(row.ibCommission),
     netCash: cashFlow(row),
     basis: num(row.cost),
-    fifoRealizedPnl: num(row.fifoPnlRealized),
-    realizedPnl: num(row.fifoPnlRealized),
+    fifoRealizedPnl: reportedRealizedPnl,
+    realizedPnl: reportedRealizedPnl,
     mtmPnl: num(row.mtmPnl),
     code: actionCodes.join(";"),
     actionCodes,
-    close: openCloseIndicator === "C",
-    expired: notes.includes("Ep") || notes.includes("Ex"),
-    autoExpiry: notes.includes("Ep"),
-    closeReason: notes.includes("Ep") ? "expired" : notes.includes("Ex") ? "exercise_or_assignment" : "",
-    transactionType: row.transactionType || "",
+    close,
+    expired: lifecycle.isLifecycle,
+    autoExpiry: lifecycle.isExpiration,
+    closeReason: lifecycle.isExpiration || lifecycle.isCashDelivery
+      ? "expired"
+      : lifecycle.isExerciseOrAssignment
+        ? "exercise_or_assignment"
+        : "",
+    transactionType,
     strategyGroupId: strategyGroupId(row),
     expiry: compactFlexDate(row.expiry),
     putCall: row.putCall || "",
@@ -166,13 +197,8 @@ function normalizeOptionEvent(row: Record<string, string>): NormalizedOptionEven
   ]);
   const eventCode = optionEventCode(transactionType, sourceCodes);
   const actionCodes = uniqueCodes(["C", ...sourceCodes, eventCode]);
+  const lifecycle = optionLifecycleFlags(actionCodes, transactionType);
   const displaySymbol = row.description || row.symbol || "";
-  const isExpiration = /expir/i.test(transactionType) || actionCodes.includes("Ep");
-  const isExerciseOrAssignment = /exerc|assign/i.test(transactionType)
-    || actionCodes.includes("Ex")
-    || actionCodes.includes("A");
-  const isCashSettlement = /cash.*sett/i.test(transactionType)
-    || actionCodes.includes("CD");
   const hasReportedRealizedPnl = hasNumericValue(row.realizedPnl);
   const realizedPnl = hasReportedRealizedPnl ? num(row.realizedPnl) : 0;
   const commission = num(
@@ -206,9 +232,11 @@ function normalizeOptionEvent(row: Record<string, string>): NormalizedOptionEven
       code: actionCodes.join(";"),
       actionCodes,
       close: true,
-      expired: isExpiration || isExerciseOrAssignment || isCashSettlement,
-      autoExpiry: isExpiration,
-      closeReason: isExpiration || isCashSettlement ? "expired" : "exercise_or_assignment",
+      expired: lifecycle.isLifecycle,
+      autoExpiry: lifecycle.isExpiration,
+      closeReason: lifecycle.isExpiration || lifecycle.isCashDelivery
+        ? "expired"
+        : "exercise_or_assignment",
       transactionType,
       strategyGroupId: strategyGroupId(row),
       expiry: compactFlexDate(row.expiry),
@@ -231,27 +259,39 @@ interface ReconciledTrades {
 function reconcileOptionEvents(
   trades: FlexTrade[],
   optionEvents: NormalizedOptionEvent[],
+  reportedTradePnlTrades = new Set<FlexTrade>(),
 ): ReconciledTrades {
   const reconciled = [...trades];
-  const reportedPnlTrades = new Set<FlexTrade>();
+  const reportedPnlTrades = new Set(reportedTradePnlTrades);
   const matchedTradeIndexes = new Set<number>();
 
   for (const optionEvent of optionEvents) {
     const matchIndex = trades.findIndex((trade, index) =>
       !matchedTradeIndexes.has(index)
       && isMatchingLifecycleTrade(trade, optionEvent.trade));
+    const matchedTrade = matchIndex >= 0
+      ? trades[matchIndex] as FlexTrade
+      : null;
+    const matchedTradeHasReportedPnl = matchedTrade
+      ? reportedPnlTrades.has(matchedTrade)
+      : false;
     const reconciledEvent = matchIndex >= 0
-      ? mergeLifecycleTrade(trades[matchIndex] as FlexTrade, optionEvent.trade)
+      ? mergeLifecycleTrade(
+        matchedTrade as FlexTrade,
+        optionEvent.trade,
+        optionEvent.hasReportedRealizedPnl,
+      )
       : optionEvent.trade;
 
     if (matchIndex >= 0) {
       reconciled[matchIndex] = reconciledEvent;
       matchedTradeIndexes.add(matchIndex);
+      if (matchedTrade) reportedPnlTrades.delete(matchedTrade);
     } else {
       reconciled.push(reconciledEvent);
     }
 
-    if (optionEvent.hasReportedRealizedPnl) {
+    if (optionEvent.hasReportedRealizedPnl || matchedTradeHasReportedPnl) {
       reportedPnlTrades.add(reconciledEvent);
     }
   }
@@ -267,10 +307,10 @@ function isMatchingLifecycleTrade(trade: FlexTrade, optionEvent: FlexTrade): boo
 }
 
 function isLifecycleEvent(trade: FlexTrade): boolean {
-  return trade.expired
-    || trade.autoExpiry
-    || trade.closeReason !== ""
-    || /expir|exerc|assign|cash.*sett/i.test(trade.transactionType);
+  return optionLifecycleFlags(
+    trade.actionCodes,
+    trade.transactionType,
+  ).isLifecycle;
 }
 
 function quantitiesMatch(left: number, right: number): boolean {
@@ -278,11 +318,18 @@ function quantitiesMatch(left: number, right: number): boolean {
   return Math.abs(Math.abs(left) - Math.abs(right)) <= 1e-8;
 }
 
-function mergeLifecycleTrade(trade: FlexTrade, optionEvent: FlexTrade): FlexTrade {
+function mergeLifecycleTrade(
+  trade: FlexTrade,
+  optionEvent: FlexTrade,
+  useOptionEventPnl: boolean,
+): FlexTrade {
   const actionCodes = uniqueCodes([
     ...trade.actionCodes,
     ...optionEvent.actionCodes,
   ]);
+  const reportedPnl = useOptionEventPnl
+    ? optionEvent.realizedPnl
+    : trade.realizedPnl;
 
   return {
     ...trade,
@@ -290,6 +337,8 @@ function mergeLifecycleTrade(trade: FlexTrade, optionEvent: FlexTrade): FlexTrad
     strategyGroupId: optionEvent.strategyGroupId || trade.strategyGroupId,
     actionCodes,
     code: actionCodes.join(";"),
+    fifoRealizedPnl: reportedPnl,
+    realizedPnl: reportedPnl,
   };
 }
 
@@ -379,11 +428,43 @@ function isOptionLifecycleRow(row: Record<string, string>): boolean {
 }
 
 function optionEventCode(transactionType: string, sourceCodes: string[]): string {
-  if (sourceCodes.includes("Ep") || /expir/i.test(transactionType)) return "Ep";
-  if (sourceCodes.includes("Ex") || /exerc/i.test(transactionType)) return "Ex";
-  if (sourceCodes.includes("A") || /assign/i.test(transactionType)) return "A";
-  if (sourceCodes.includes("CD") || /cash.*sett/i.test(transactionType)) return "CD";
+  if (sourceCodes.some(isOptionLifecycleCode)) return "";
+  if (/expir/i.test(transactionType)) return "Ep";
+  if (/exerc/i.test(transactionType)) return "Ex";
+  if (/assign/i.test(transactionType)) return "A";
+  if (/cash.*(?:deliver|sett)/i.test(transactionType)) return "CD";
   return "";
+}
+
+interface OptionLifecycleFlags {
+  isLifecycle: boolean;
+  isExpiration: boolean;
+  isExerciseOrAssignment: boolean;
+  isCashDelivery: boolean;
+}
+
+function optionLifecycleFlags(
+  codes: string[],
+  transactionType: string,
+): OptionLifecycleFlags {
+  const isExpiration = codes.includes("Ep") || /expir/i.test(transactionType);
+  const isExerciseOrAssignment = codes.some((code) =>
+    ["A", "AEx", "Ex", "GEA", "MEx"].includes(code),
+  )
+    || /exerc|assign/i.test(transactionType);
+  const isCashDelivery = codes.includes("CD")
+    || /cash.*(?:deliver|sett)/i.test(transactionType);
+
+  return {
+    isLifecycle: isExpiration || isExerciseOrAssignment || isCashDelivery,
+    isExpiration,
+    isExerciseOrAssignment,
+    isCashDelivery,
+  };
+}
+
+function isOptionLifecycleCode(code: string): boolean {
+  return ["A", "AEx", "CD", "Ep", "Ex", "GEA", "MEx"].includes(code);
 }
 
 function strategyGroupId(row: Record<string, string>): string {
@@ -477,7 +558,7 @@ function formatFlexPeriod(fromDate = "", toDate = ""): string {
 
 function splitCodes(value = ""): string[] {
   return value
-    .split(";")
+    .split(/[;,]/)
     .map((code) => code.trim())
     .filter(Boolean);
 }

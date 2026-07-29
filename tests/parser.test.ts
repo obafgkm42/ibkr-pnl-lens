@@ -164,6 +164,29 @@ const xmlWithDuplicateCashSettlementLifecycle = `
 </FlexStatement>
 `;
 
+const xmlWithExercisedCashSettlementTrade = `
+<FlexStatement accountId="DEMO-EXERCISE" fromDate="20260102" toDate="20260116">
+  <Trades>
+    <Trade assetCategory="OPT" currency="USD" symbol="SPXW  260116C06000000" description="SPXW 16JAN26 6000 C" underlyingSymbol="SPX" dateTime="20260102;100000" tradeDate="20260102" quantity="1" tradePrice="1" proceeds="-100" ibCommission="0" netCash="-100" cost="100" fifoPnlRealized="0" mtmPnl="0" openCloseIndicator="O" transactionType="Buy" expiry="20260116" putCall="C" strike="6000" multiplier="100" />
+    <Trade assetCategory="OPT" currency="USD" symbol="SPXW  260116C06000000" description="SPXW 16JAN26 6000 C" underlyingSymbol="SPX" dateTime="20260116" tradeDate="20260116" quantity="-1" tradePrice="0" proceeds="0" ibCommission="0" netCash="0" cost="100" fifoPnlRealized="2400" mtmPnl="2500" notes="Ex" transactionType="Exercise" expiry="20260116" putCall="C" strike="6000" multiplier="100" />
+  </Trades>
+</FlexStatement>
+`;
+
+const xmlWithOfficialOptionLifecycleCodes = `
+<FlexStatement accountId="DEMO-CODES" fromDate="20260116" toDate="20260116">
+  <Trades>
+    <Trade assetCategory="OPT" currency="USD" symbol="DEMO1 260116C00100000" description="DEMO1 16JAN26 100 C" tradeDate="20260116" quantity="-1" fifoPnlRealized="-10" notes="Ep" transactionType="Lifecycle" expiry="20260116" putCall="C" strike="100" multiplier="100" />
+    <Trade assetCategory="OPT" currency="USD" symbol="DEMO2 260116C00100000" description="DEMO2 16JAN26 100 C" tradeDate="20260116" quantity="-1" fifoPnlRealized="20" notes="C,Ex" transactionType="Lifecycle" expiry="20260116" putCall="C" strike="100" multiplier="100" />
+    <Trade assetCategory="OPT" currency="USD" symbol="DEMO3 260116C00100000" description="DEMO3 16JAN26 100 C" tradeDate="20260116" quantity="-1" fifoPnlRealized="30" notes="A" transactionType="Lifecycle" expiry="20260116" putCall="C" strike="100" multiplier="100" />
+    <Trade assetCategory="OPT" currency="USD" symbol="DEMO4 260116C00100000" description="DEMO4 16JAN26 100 C" tradeDate="20260116" quantity="-1" fifoPnlRealized="40" notes="CD" transactionType="Lifecycle" expiry="20260116" putCall="C" strike="100" multiplier="100" />
+    <Trade assetCategory="OPT" currency="USD" symbol="DEMO5 260116C00100000" description="DEMO5 16JAN26 100 C" tradeDate="20260116" quantity="-1" fifoPnlRealized="50" notes="AEx" transactionType="Lifecycle" expiry="20260116" putCall="C" strike="100" multiplier="100" />
+    <Trade assetCategory="OPT" currency="USD" symbol="DEMO6 260116C00100000" description="DEMO6 16JAN26 100 C" tradeDate="20260116" quantity="-1" fifoPnlRealized="60" notes="MEx" transactionType="Lifecycle" expiry="20260116" putCall="C" strike="100" multiplier="100" />
+    <Trade assetCategory="OPT" currency="USD" symbol="DEMO7 260116C00100000" description="DEMO7 16JAN26 100 C" tradeDate="20260116" quantity="-1" fifoPnlRealized="70" notes="GEA" transactionType="Lifecycle" expiry="20260116" putCall="C" strike="100" multiplier="100" />
+  </Trades>
+</FlexStatement>
+`;
+
 const report = parseIbkrStatement(xml);
 const multiAccountReport = parseIbkrStatement(multiAccountXml);
 const secondAccountReport = parseIbkrStatement(multiAccountXml, 1);
@@ -179,6 +202,8 @@ const weekendAndPremarketClosesReport = parseIbkrStatement(xmlWithWeekendAndPrem
 const cashSettledOptionReport = parseIbkrStatement(xmlWithCashSettledOption);
 const worthlessOptionExpirationReport = parseIbkrStatement(xmlWithWorthlessOptionExpiration);
 const duplicateCashSettlementReport = parseIbkrStatement(xmlWithDuplicateCashSettlementLifecycle);
+const exercisedCashSettlementTradeReport = parseIbkrStatement(xmlWithExercisedCashSettlementTrade);
+const officialOptionLifecycleCodesReport = parseIbkrStatement(xmlWithOfficialOptionLifecycleCodes);
 
 // Basic parsing
 assert.ok(report.profile.maskedAccountId.includes("*"));
@@ -245,6 +270,27 @@ assert.equal(duplicateCashSettlementReport.trades.length, 2);
 assert.equal(duplicateCashSettlementReport.closedTrades.length, 1);
 assert.equal(duplicateCashSettlementReport.metrics.net, 2400);
 assert.equal(duplicateCashSettlementReport.metrics.autoExpiryCount, 1);
+
+// Exercise-coded Trades must preserve IBKR's reported cash-settlement P/L.
+assert.equal(exercisedCashSettlementTradeReport.metrics.executionCount, 2);
+assert.equal(exercisedCashSettlementTradeReport.closedTrades.length, 1);
+assert.equal(exercisedCashSettlementTradeReport.closedTrades[0]?.close, true);
+assert.equal(exercisedCashSettlementTradeReport.closedTrades[0]?.code, "C;Ex");
+assert.equal(exercisedCashSettlementTradeReport.closedTrades[0]?.fifoRealizedPnl, 2400);
+assert.equal(exercisedCashSettlementTradeReport.closedTrades[0]?.realizedPnl, 2400);
+assert.equal(exercisedCashSettlementTradeReport.metrics.net, 2400);
+assert.equal(exercisedCashSettlementTradeReport.closedPositionSlices[0]?.pnl, 2400);
+
+// Recognize all IBKR lifecycle codes that can close or settle an option.
+assert.equal(officialOptionLifecycleCodesReport.closedTrades.length, 7);
+assert.equal(officialOptionLifecycleCodesReport.closedTrades.every((trade) => trade.close), true);
+assert.deepEqual(
+  officialOptionLifecycleCodesReport.closedTrades.map((trade) =>
+    trade.actionCodes.find((code) => ["A", "AEx", "CD", "Ep", "Ex", "GEA", "MEx"].includes(code))),
+  ["Ep", "Ex", "A", "CD", "AEx", "MEx", "GEA"],
+);
+assert.equal(officialOptionLifecycleCodesReport.metrics.autoExpiryCount, 1);
+assert.equal(officialOptionLifecycleCodesReport.metrics.net, 260);
 
 // Metrics should be internally valid
 assert.ok(Number.isFinite(report.metrics.net));
