@@ -8,7 +8,7 @@
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
-    "test": "tsc -p tsconfig.test.json && node .test-build/tests/parser.test.js && node .test-build/tests/i18n.test.js",
+    "test": "tsc -p tsconfig.test.json && node .test-build/tests/parser.test.js && node .test-build/tests/i18n.test.js && node .test-build/tests/chart.test.js",
     "deploy": "npm run build && wrangler deploy"
   },
   "devDependencies": {

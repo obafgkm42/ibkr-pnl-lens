@@ -53,17 +53,51 @@ export function drawDailyChart(canvas: HTMLCanvasElement, daily: DailyPnl[], opt
   });
 }
 
-export function drawDistributionChart(canvas: HTMLCanvasElement, trades: ClosedTrade[], options: ChartOptions): void {
+/** Draw observed counts from loss to profit, with small outcomes near zero. */
+export function drawDistributionChart(
+  canvas: HTMLCanvasElement,
+  trades: ClosedTrade[],
+  options: ChartOptions,
+): void {
   drawCanvas(canvas, options.theme, ({ ctx, width, height, pad }) => {
-    const wins = trades.filter((trade) => trade.realizedPnl > 0).map((trade) => trade.realizedPnl);
-    const losses = trades.filter((trade) => trade.realizedPnl < 0).map((trade) => Math.abs(trade.realizedPnl));
+    const wins = trades
+      .filter((trade) => trade.realizedPnl > 0)
+      .map((trade) => trade.realizedPnl);
+    const losses = trades
+      .filter((trade) => trade.realizedPnl < 0)
+      .map((trade) => Math.abs(trade.realizedPnl));
+    // Keep signed P/L order rather than sorting counts into an artificial bell curve.
     const buckets: Array<[string, number, string]> = [
-      [t(options.locale, "winBucketSmall"), wins.filter((value) => value < 50).length, "#7bc8a4"],
-      [t(options.locale, "winBucketMedium"), wins.filter((value) => value >= 50 && value < 150).length, options.theme.win],
-      [t(options.locale, "winBucketLarge"), wins.filter((value) => value >= 150).length, "#09624f"],
-      [t(options.locale, "lossBucketSmall"), losses.filter((value) => value < 50).length, "#e6a2a2"],
-      [t(options.locale, "lossBucketMedium"), losses.filter((value) => value >= 50 && value < 150).length, options.theme.loss],
-      [t(options.locale, "lossBucketLarge"), losses.filter((value) => value >= 150).length, "#812f35"],
+      [
+        t(options.locale, "lossBucketLarge"),
+        losses.filter((value) => value >= 150).length,
+        "#812f35",
+      ],
+      [
+        t(options.locale, "lossBucketMedium"),
+        losses.filter((value) => value >= 50 && value < 150).length,
+        options.theme.loss,
+      ],
+      [
+        t(options.locale, "lossBucketSmall"),
+        losses.filter((value) => value < 50).length,
+        "#e6a2a2",
+      ],
+      [
+        t(options.locale, "winBucketSmall"),
+        wins.filter((value) => value < 50).length,
+        "#7bc8a4",
+      ],
+      [
+        t(options.locale, "winBucketMedium"),
+        wins.filter((value) => value >= 50 && value < 150).length,
+        options.theme.win,
+      ],
+      [
+        t(options.locale, "winBucketLarge"),
+        wins.filter((value) => value >= 150).length,
+        "#09624f",
+      ],
     ];
     const max = Math.max(...buckets.map((bucket) => bucket[1]), 1);
     const chartWidth = width - pad * 2;
@@ -72,15 +106,30 @@ export function drawDistributionChart(canvas: HTMLCanvasElement, trades: ClosedT
     const barBottom = height - 84;
     const labelTop = height - 52;
 
+    ctx.strokeStyle = options.theme.line;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad, crisp(barBottom));
+    ctx.lineTo(width - pad, crisp(barBottom));
+    ctx.moveTo(crisp(width / 2), pad - 8);
+    ctx.lineTo(crisp(width / 2), barBottom + 6);
+    ctx.stroke();
+    ctx.fillStyle = options.theme.muted;
+    ctx.font = "10px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText("0", width / 2, barBottom + 19);
+
     buckets.forEach(([label, value, color], index) => {
       const x = pad + index * (barWidth + barGap);
       const barHeight = ((barBottom - pad) * value) / max;
       ctx.fillStyle = color;
-      ctx.fillRect(x, barBottom - barHeight, barWidth, barHeight || 2);
+      ctx.fillRect(x, barBottom - barHeight, barWidth, barHeight);
       ctx.fillStyle = options.theme.muted;
       ctx.font = `${barWidth < 86 ? 10 : 11}px system-ui`;
       ctx.textAlign = "center";
-      drawWrappedLabel(ctx, label, x + barWidth / 2, labelTop, Math.max(46, barWidth + 8), 2);
+      drawWrappedLabel(
+        ctx, label, x + barWidth / 2, labelTop, Math.max(46, barWidth + 8), 2,
+      );
       ctx.fillStyle = options.theme.ink;
       ctx.font = "700 13px system-ui";
       ctx.fillText(String(value), x + barWidth / 2, barBottom - barHeight - 8);

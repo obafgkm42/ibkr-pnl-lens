@@ -1,5 +1,7 @@
 # IBKR PnL Lens
 
+[GitHub repository](https://github.com/obafgkm42/ibkr-pnl-lens)
+
 Fully offline IBKR Flex XML analyzer for profit factor, payoff ratio, realized P/L, option auto-expiry risk, period performance, and trade discipline review.
 
 This project is designed for traders who want a quick, private review of their Interactive Brokers activity data without sending statements, account identifiers, or API keys to any external service.
@@ -51,7 +53,12 @@ Any rule-based notes shown by the app are generated from the uploaded statement 
 - **Profit Factor**: Gross profit divided by gross loss.
 - **Win Rate**: Winning closed trades divided by closed trades with non-zero realized P/L.
 - **Payoff Ratio**: Average win divided by average loss.
-- **Expectancy**: Average realized P/L per closed trade.
+- **Expectancy**: Average realized P/L per closed trade with non-zero realized P/L.
+- **Win/Loss Distribution**: Observed trade counts ordered from large losses to
+  large wins, with small losses and wins beside zero. Small outcomes are below
+  50 in absolute P/L, medium outcomes are 50 to below 150, and large outcomes
+  are 150 or more. Breakeven trades are excluded. The chart does not estimate
+  future probabilities or fit a normal distribution.
 - **Auto Expiry**: Option trades with `Ep` notes are included and highlighted.
 - **Period Performance**: Weekly or monthly net realized P/L with profit factor and payoff ratio.
 - **Asset Breakdown**: Stock and option performance are calculated separately.
